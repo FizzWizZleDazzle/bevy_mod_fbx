@@ -1,4 +1,4 @@
-use bevy::prelude::{AddAsset, App, Plugin, Resource};
+use bevy::prelude::{App, AssetApp, Plugin, Resource};
 
 pub use data::{FbxMesh, FbxScene};
 pub use loader::FbxLoader;
@@ -37,7 +37,7 @@ impl Default for FbxMaterialLoaders {
 impl Plugin for FbxPlugin {
     fn build(&self, app: &mut App) {
         app.init_asset_loader::<FbxLoader>()
-            .add_asset::<FbxMesh>()
-            .add_asset::<FbxScene>();
+            .init_asset::<FbxMesh>()
+            .init_asset::<FbxScene>();
     }
 }

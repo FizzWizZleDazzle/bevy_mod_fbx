@@ -1,12 +1,13 @@
 use bevy::{
     prelude::{Handle, Image, Mesh, StandardMaterial, Transform},
-    reflect::TypeUuid,
     utils::HashMap,
+    asset::Asset
 };
+use bevy::prelude::TypePath;
 use fbxcel_dom::v7400::object::ObjectId;
 
-#[derive(Debug, Clone, TypeUuid)]
-#[uuid = "966d55c0-515b-4141-97a1-de30ac8ee44c"]
+#[derive(Debug, Clone, Asset, TypePath)]
+//#[uuid = "966d55c0-515b-4141-97a1-de30ac8ee44c"]
 pub struct FbxMesh {
     pub name: Option<String>,
     pub bevy_mesh_handles: Vec<Handle<Mesh>>,
@@ -24,8 +25,8 @@ pub struct FbxMesh {
 ///
 /// [`Scene`]: bevy::scene::Scene
 /// [`Name`]: bevy::core::Name
-#[derive(Default, Debug, Clone, TypeUuid)]
-#[uuid = "e87d49b6-8d6a-43c7-bb33-5315db8516eb"]
+#[derive(Default, Debug, Clone, Asset, TypePath)]
+//#[uuid = "e87d49b6-8d6a-43c7-bb33-5315db8516eb"]
 pub struct FbxScene {
     pub name: Option<String>,
     pub bevy_meshes: HashMap<Handle<Mesh>, String>,

@@ -2,21 +2,23 @@ use std::path::Path;
 
 use anyhow::{anyhow, bail, Context};
 use bevy::{
-    asset::{AssetLoader, BoxedFuture, LoadContext, LoadedAsset},
-    math::{DVec2, DVec3, Vec2},
+    asset::{AssetLoader, LoadContext, LoadedAsset},
+    math::{DVec2, DVec3, Vec2, Vec3},
     prelude::{
-        debug, error, info, trace, BuildWorldChildren, FromWorld, Handle, Image, Mesh, Name,
-        PbrBundle, Scene, StandardMaterial, Transform, TransformBundle, VisibilityBundle, World,
+        debug, error, info, trace, BuildChildren, FromWorld, Handle, Image, Mesh, Name,
+        MeshMaterial3d, Scene, StandardMaterial, Transform, Visibility, World,
         WorldChildBuilder,
     },
     render::{
         mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
         render_resource::{AddressMode, SamplerDescriptor},
         renderer::RenderDevice,
-        texture::{CompressedImageFormats, ImageSampler, ImageType},
     },
+    image::{CompressedImageFormats, ImageSampler, ImageType, ImageSamplerDescriptor},
     utils::HashMap,
 };
+use bevy::asset::io::Reader;
+use bevy::asset::{AsyncReadExt, RenderAssetUsages};
 use fbxcel_dom::{
     any::AnyDocument,
     v7400::{
@@ -31,9 +33,13 @@ use fbxcel_dom::{
     },
 };
 
+use bevy::prelude::ChildBuild;
+
 #[cfg(feature = "profile")]
 use bevy::log::info_span;
-use glam::Vec3;
+use bevy::prelude::Mesh3d;
+use bevy::utils::ConditionalSendFuture;
+
 
 use crate::{
     data::{FbxMesh, FbxObject, FbxScene},
@@ -72,30 +78,54 @@ impl FromWorld for FbxLoader {
         }
     }
 }
+#[derive(Debug, Clone)]
+pub struct FbxLoadingError(String);
+
+impl std::error::Error for FbxLoadingError {}
+
+impl std::fmt::Display for FbxLoadingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<std::io::Error> for FbxLoadingError {
+    fn from(err: std::io::Error) -> Self {
+        Self(err.to_string())
+    }
+}
+
 impl AssetLoader for FbxLoader {
-    fn load<'a>(
-        &'a self,
-        bytes: &'a [u8],
-        load_context: &'a mut LoadContext,
-    ) -> BoxedFuture<'a, anyhow::Result<()>> {
+    type Asset = FbxScene;
+    type Settings = ();
+    type Error = FbxLoadingError;
+
+    fn load(
+        &self,
+        reader: &mut dyn Reader,
+        settings: &Self::Settings,
+        load_context: &mut LoadContext,
+    ) -> impl ConditionalSendFuture<Output = Result<Self::Asset, Self::Error>> {
         Box::pin(async move {
-            let cursor = std::io::Cursor::new(bytes);
+            let mut bytes = Vec::new();
+            reader.read_to_end(&mut bytes).await?;
+            let cursor = std::io::Cursor::new(bytes.as_slice());
             let reader = std::io::BufReader::new(cursor);
             let maybe_doc =
                 AnyDocument::from_seekable_reader(reader).expect("Failed to load document");
             if let AnyDocument::V7400(_ver, doc) = maybe_doc {
-                let loader =
+                let path = load_context.path().to_owned();
+                let mut loader =
                     Loader::new(self.supported, self.material_loaders.clone(), load_context);
-                let potential_error = loader
-                    .load(*doc)
-                    .await
-                    .with_context(|| format!("failed to load {:?}", load_context.path()));
-                if let Err(err) = potential_error {
-                    error!("{err:?}");
+                match loader.load(*doc).await {
+                    Ok(scene) => Ok(scene),
+                    Err(err) => {
+                        error!("{err:?}");
+                        Err(FbxLoadingError(err.to_string()))
+                    }
                 }
-                Ok(())
             } else {
-                Err(anyhow!("TODO: better error handling in fbx loader"))
+                Err(FbxLoadingError("Unsupported FBX version".to_string()))
             }
         })
     }
@@ -116,11 +146,9 @@ fn spawn_scene(
     let mut scene_world = World::default();
     scene_world
         .spawn((
-            VisibilityBundle::default(),
-            TransformBundle::from_transform(Transform::from_scale(
-                Vec3::ONE * FBX_TO_BEVY_SCALE_FACTOR * fbx_file_scale,
-            )),
-            Name::new("Fbx scene root"),
+           Visibility::default(),
+           Transform::from_scale(Vec3::ONE * FBX_TO_BEVY_SCALE_FACTOR * fbx_file_scale),
+           Name::from("FbxScene"),
         ))
         .with_children(|commands| {
             for root in roots {
@@ -134,14 +162,15 @@ fn spawn_scene_rec(
     commands: &mut WorldChildBuilder,
     hierarchy: &HashMap<ObjectId, FbxObject>,
     models: &HashMap<ObjectId, FbxMesh>,
+
 ) {
     let current_node = match hierarchy.get(&current) {
         Some(node) => node,
         None => return,
     };
     let mut entity = commands.spawn((
-        VisibilityBundle::default(),
-        TransformBundle::from_transform(current_node.transform),
+        Visibility::default(),
+        current_node.transform,
     ));
     if let Some(name) = &current_node.name {
         entity.insert(Name::new(name.clone()));
@@ -149,11 +178,7 @@ fn spawn_scene_rec(
     entity.with_children(|commands| {
         if let Some(mesh) = models.get(&current) {
             for (mat, bevy_mesh) in mesh.materials.iter().zip(&mesh.bevy_mesh_handles) {
-                let mut entity = commands.spawn(PbrBundle {
-                    mesh: bevy_mesh.clone(),
-                    material: mat.clone(),
-                    ..Default::default()
-                });
+                let mut entity = commands.spawn((MeshMaterial3d(mat.clone()), Mesh3d(bevy_mesh.clone())));
                 if let Some(name) = mesh.name.as_ref() {
                     entity.insert(Name::new(name.clone()));
                 }
@@ -179,7 +204,7 @@ impl<'b, 'w> Loader<'b, 'w> {
         }
     }
 
-    async fn load(mut self, doc: Document) -> anyhow::Result<()> {
+    async fn load(mut self, doc: Document) -> anyhow::Result<FbxScene> {
         info!(
             "Started loading scene {}#FbxScene",
             self.load_context.path().to_string_lossy(),
@@ -205,17 +230,17 @@ impl<'b, 'w> Loader<'b, 'w> {
         let scene = spawn_scene(fbx_scale as f32, &roots, &hierarchy, &meshes);
 
         let load_context = &mut self.load_context;
-        load_context.set_labeled_asset("Scene", LoadedAsset::new(scene));
+        load_context.add_labeled_asset("Scene".to_string(), scene);
 
         let mut scene = self.scene;
         scene.hierarchy = hierarchy.clone();
         scene.roots = roots;
-        load_context.set_labeled_asset("FbxScene", LoadedAsset::new(scene));
+        load_context.add_labeled_asset("FbxScene".to_string(), scene.clone());
         info!(
             "Successfully loaded scene {}#FbxScene",
             load_context.path().to_string_lossy(),
         );
-        Ok(())
+        Ok(scene)
     }
 
     fn load_bevy_mesh(
@@ -255,7 +280,7 @@ impl<'b, 'w> Loader<'b, 'w> {
             let point = polygon_vertices
                 .control_point(cpi)
                 .ok_or_else(|| anyhow!("Failed to get control point: cpi={:?}", cpi))?;
-            Ok(DVec3::from(point).as_vec3().into())
+            Ok(DVec3::from((point.x, point.y, point.z)).as_vec3().into())
         };
         let positions = triangle_pvi_indices
             .iter_control_point_indices()
@@ -314,7 +339,7 @@ impl<'b, 'w> Loader<'b, 'w> {
                 .context("Failed to get normals")?;
             let get_indices = |tri_vi| -> Result<_, anyhow::Error> {
                 let v = normals.normal(&triangle_pvi_indices, tri_vi)?;
-                Ok(DVec3::from(v).as_vec3().into())
+                Ok(DVec3::from((v.x, v.y, v.z)).as_vec3().into())
             };
             triangle_pvi_indices
                 .triangle_vertex_indices()
@@ -333,7 +358,7 @@ impl<'b, 'w> Loader<'b, 'w> {
                 .uv()?;
             let get_indices = |tri_vi| -> Result<_, anyhow::Error> {
                 let v = uv.uv(&triangle_pvi_indices, tri_vi)?;
-                let fbx_uv_space = DVec2::from(v).as_vec2();
+                let fbx_uv_space = DVec2::from((v.x, v.y)).as_vec2();
                 let bevy_uv_space = fbx_uv_space * Vec2::new(1.0, -1.0) + Vec2::new(0.0, 1.0);
                 Ok(bevy_uv_space.into())
             };
@@ -371,7 +396,7 @@ impl<'b, 'w> Loader<'b, 'w> {
 
         debug!("Material count for {label}: {}", all_indices.len());
 
-        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList);
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::all());
         mesh.insert_attribute(
             Mesh::ATTRIBUTE_POSITION,
             VertexAttributeValues::Float32x3(positions),
@@ -381,7 +406,7 @@ impl<'b, 'w> Loader<'b, 'w> {
             Mesh::ATTRIBUTE_NORMAL,
             VertexAttributeValues::Float32x3(normals),
         );
-        mesh.set_indices(Some(Indices::U32(full_mesh_indices)));
+        mesh.insert_indices(Indices::U32(full_mesh_indices));
         mesh.generate_tangents()
             .context("Failed to generate tangents")?;
 
@@ -392,13 +417,13 @@ impl<'b, 'w> Loader<'b, 'w> {
                 debug!("Material {i} has {} vertices", material_indices.len());
 
                 let mut material_mesh = mesh.clone();
-                material_mesh.set_indices(Some(Indices::U32(material_indices)));
+                material_mesh.insert_indices(Indices::U32(material_indices));
 
                 let label = format!("{label}{i}");
 
                 let handle = self
                     .load_context
-                    .set_labeled_asset(&label, LoadedAsset::new(material_mesh));
+                    .add_labeled_asset(label.to_string(), (material_mesh));
                 self.scene.bevy_meshes.insert(handle.clone(), label);
                 handle
             })
@@ -447,7 +472,7 @@ impl<'b, 'w> Loader<'b, 'w> {
 
         let mesh_handle = self
             .load_context
-            .set_labeled_asset(&label, LoadedAsset::new(mesh.clone()));
+            .add_labeled_asset(label.to_string(), mesh.clone());
 
         self.scene.meshes.insert(mesh_obj.object_id(), mesh_handle);
 
@@ -484,10 +509,15 @@ impl<'b, 'w> Loader<'b, 'w> {
         };
         let is_srgb = false; // TODO
         let image = Image::from_buffer(
-            &image,
+            //"Texture".to_string(),
+            image.as_slice(),
             ImageType::Extension(&file_ext),
             self.suported_compressed_formats,
             is_srgb,
+            ImageSampler::Descriptor(ImageSamplerDescriptor {
+                ..Default::default()
+            }),
+            RenderAssetUsages::all()
         );
         let image = image.context("Failed to read image buffer data")?;
         debug!(
@@ -560,7 +590,7 @@ impl<'b, 'w> Loader<'b, 'w> {
                 };
                 let handle = self
                     .load_context
-                    .set_labeled_asset(&handle_label, LoadedAsset::new(texture));
+                    .add_labeled_asset(handle_label.to_string(), texture);
                 self.scene.textures.insert(handle_label, handle.clone());
                 handle
             };
@@ -600,11 +630,11 @@ impl<'b, 'w> Loader<'b, 'w> {
         let image: Result<Image, anyhow::Error> = self.load_video_clip(video_clip_obj).await;
         let mut image = image.context("Failed to load texture image")?;
 
-        image.sampler_descriptor = ImageSampler::Descriptor(SamplerDescriptor {
+        /*image.sampler_descriptor = ImageSampler::Descriptor(ImageSamplerDescriptor {
             address_mode_u,
             address_mode_v,
             ..Default::default()
-        });
+        });*/
         Ok(image)
     }
 
@@ -634,7 +664,7 @@ impl<'b, 'w> Loader<'b, 'w> {
         let material = material.context("None of the material loaders could load this material")?;
         let handle = self
             .load_context
-            .set_labeled_asset(&label, LoadedAsset::new(material));
+            .add_labeled_asset(label.to_string(), material);
         debug!("Successfully loaded material: {label}");
 
         self.scene.materials.insert(label, handle.clone());

@@ -161,7 +161,7 @@ pub fn triangulate(
 /// Returns the vector.
 fn get_vec(pvs: &PolygonVertices<'_>, pvi: PolygonVertexIndex) -> anyhow::Result<DVec3> {
     pvs.control_point(pvi)
-        .map(Into::into)
+        .map(|p| DVec3::from((p.x, p.y, p.z)))
         .ok_or_else(|| anyhow!("Index out of range: {pvi:?}"))
 }
 

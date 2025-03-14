@@ -205,6 +205,98 @@ impl TryFrom<i32> for RotationOrder {
     }
 }
 
+// Add these conversions before the impl_loadable! macro
+trait IntoHelper<T> {
+    fn do_into(&self) -> T;
+}
+
+impl IntoHelper<Vec2> for Vector2<f32> {
+    fn do_into(&self) -> Vec2 { Vec2::new(self.x, self.y) }
+}
+
+impl IntoHelper<DVec2> for Vector2<f64> {
+    fn do_into(&self) -> DVec2 { DVec2::new(self.x, self.y) }
+}
+
+impl IntoHelper<Vec3> for Vector3<f32> {
+    fn do_into(&self) -> Vec3 { Vec3::new(self.x, self.y, self.z) }
+}
+
+impl IntoHelper<DVec3> for Vector3<f64> {
+    fn do_into(&self) -> DVec3 { DVec3::new(self.x, self.y, self.z) }
+}
+
+impl IntoHelper<Vec4> for Vector4<f32> {
+    fn do_into(&self) -> Vec4 { Vec4::new(self.x, self.y, self.z, self.w) }
+}
+
+impl IntoHelper<DVec4> for Vector4<f64> {
+    fn do_into(&self) -> DVec4 { DVec4::new(self.x, self.y, self.z, self.w) }
+}
+
+impl IntoHelper<RGB<f64>> for RGB<f64> {
+    fn do_into(&self) -> RGB<f64> { *self }
+}
+
+impl IntoHelper<RGB<f32>> for RGB<f32> {
+    fn do_into(&self) -> RGB<f32> { *self }
+}
+
+impl IntoHelper<RGBA<f64>> for RGBA<f64> {
+    fn do_into(&self) -> RGBA<f64> { *self }
+}
+
+impl IntoHelper<RGBA<f32>> for RGBA<f32> {
+    fn do_into(&self) -> RGBA<f32> { *self }
+}
+
+impl IntoHelper<bool> for bool {
+    fn do_into(&self) -> bool { *self }
+}
+
+impl IntoHelper<f32> for f32 {
+    fn do_into(&self) -> f32 { *self }
+}
+
+impl IntoHelper<f64> for f64 {
+    fn do_into(&self) -> f64 { *self }
+}
+
+impl IntoHelper<i16> for i16 {
+    fn do_into(&self) -> i16 { *self }
+}
+
+impl IntoHelper<i32> for i32 {
+    fn do_into(&self) -> i32 { *self }
+}
+
+impl IntoHelper<i64> for i64 {
+    fn do_into(&self) -> i64 { *self }
+}
+
+impl IntoHelper<u16> for u16 {
+    fn do_into(&self) -> u16 { *self }
+}
+
+impl IntoHelper<u32> for u32 {
+    fn do_into(&self) -> u32 { *self }
+}
+
+impl IntoHelper<u64> for u64 {
+    fn do_into(&self) -> u64 { *self }
+}
+
+impl IntoHelper<EulerRot> for RotationOrder {
+    fn do_into(&self) -> EulerRot { 
+        (*self).into()  // Use the existing From<RotationOrder> for EulerRot impl
+    }
+}
+
+impl IntoHelper<InheritType> for InheritType {
+    fn do_into(&self) -> InheritType { *self }
+}
+
+
 macro_rules! impl_loadable {
     ( $( $loader:expr => $target:ty ),* $(,)? ) => {
         $(
@@ -215,10 +307,10 @@ macro_rules! impl_loadable {
         impl Loadable for $target {
             fn get_property(properties: ObjectProperties, attribute: &str) -> anyhow::Result<Self> {
                 let loader = $loader;
-                let property= properties.get_property(attribute).ok_or_else(||
+                let property = properties.get_property(attribute).ok_or_else(||
                     anyhow::anyhow!("no {attribute} in properties when decoding {}", stringify!($target))
                 )?;
-                Ok(loader.load(&property)?.into())
+                Ok(loader.load(&property)?.do_into())
             }
         }
     };

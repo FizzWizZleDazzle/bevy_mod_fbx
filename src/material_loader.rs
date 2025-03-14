@@ -2,7 +2,8 @@
 use crate::utils::fbx_extend::*;
 
 use bevy::{
-    pbr::{AlphaMode, StandardMaterial},
+    prelude::AlphaMode,
+    pbr::{StandardMaterial},
     prelude::{Color, Handle, Image},
     utils::HashMap,
 };
@@ -125,7 +126,7 @@ pub const LOAD_FALLBACK: MaterialLoader = MaterialLoader {
             .ok()
             .flatten()
             .map(|c| ColorAdapter(c).into())
-            .unwrap_or(Color::PINK);
+            .unwrap_or(Color::WHITE);
         let metallic = properties
             .specular()
             .ok()
@@ -281,6 +282,6 @@ pub const fn default_loader_order() -> &'static [MaterialLoader] {
 struct ColorAdapter(RGB<f64>);
 impl From<ColorAdapter> for Color {
     fn from(ColorAdapter(rgb): ColorAdapter) -> Self {
-        Color::rgb(rgb.r as f32, rgb.g as f32, rgb.b as f32)
+        Color::srgb(rgb.r as f32, rgb.g as f32, rgb.b as f32)
     }
 }
