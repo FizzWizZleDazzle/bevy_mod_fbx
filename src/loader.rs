@@ -630,11 +630,11 @@ impl<'b, 'w> Loader<'b, 'w> {
         let image: Result<Image, anyhow::Error> = self.load_video_clip(video_clip_obj).await;
         let mut image = image.context("Failed to load texture image")?;
 
-        /*image.sampler_descriptor = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
             address_mode_u,
             address_mode_v,
             ..Default::default()
-        });*/
+        });
         Ok(image)
     }
 
