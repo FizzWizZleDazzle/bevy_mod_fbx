@@ -1,28 +1,38 @@
 use std::path::Path;
 
 use anyhow::{anyhow, bail, Context};
+
 use bevy::{
-    asset::{AssetLoader, LoadContext, LoadedAsset},
+    asset::{
+        io::Reader,
+        AssetLoader, LoadContext, RenderAssetUsages,
+    },
     math::{DVec2, DVec3, Vec2, Vec3},
     prelude::{
-        debug, error, info, trace, BuildChildren, FromWorld, Handle, Image, Mesh, Name,
-        MeshMaterial3d, Scene, StandardMaterial, Transform, Visibility, World,
-        WorldChildBuilder,
+        BuildChildren, ChildBuild, debug, error, info, trace,
+        FromWorld, Handle, Image, Mesh, Mesh3d, Name,
+        MeshMaterial3d, Scene, StandardMaterial, Transform, 
+        Visibility, World, WorldChildBuilder,
     },
     render::{
         mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
-        render_resource::{AddressMode, SamplerDescriptor},
+        render_resource::AddressMode,
         renderer::RenderDevice,
     },
-    image::{CompressedImageFormats, ImageSampler, ImageType, ImageSamplerDescriptor},
-    utils::HashMap,
+    image::{
+        CompressedImageFormats, ImageSampler, ImageType, 
+        ImageSamplerDescriptor,
+    },
+    utils::{ConditionalSendFuture, HashMap},
 };
-use bevy::asset::io::Reader;
-use bevy::asset::{AsyncReadExt, RenderAssetUsages};
+
 use fbxcel_dom::{
     any::AnyDocument,
     v7400::{
-        data::{mesh::layer::TypedLayerElementHandle, texture::WrapMode},
+        data::{
+            mesh::layer::TypedLayerElementHandle,
+            texture::WrapMode,
+        },
         object::{
             self,
             model::{ModelHandle, TypedModelHandle},
@@ -33,19 +43,17 @@ use fbxcel_dom::{
     },
 };
 
-use bevy::prelude::ChildBuild;
-
 #[cfg(feature = "profile")]
 use bevy::log::info_span;
-use bevy::prelude::Mesh3d;
-use bevy::utils::ConditionalSendFuture;
-
 
 use crate::{
     data::{FbxMesh, FbxObject, FbxScene},
+    error::FbxLoadingError,
     fbx_transform::FbxTransform,
-    utils::fbx_extend::{GlobalSettingsExt, ModelTreeRootExt},
-    utils::triangulate,
+    utils::{
+        fbx_extend::{GlobalSettingsExt, ModelTreeRootExt},
+        triangulate,
+    },
     MaterialLoader,
 };
 
@@ -78,22 +86,6 @@ impl FromWorld for FbxLoader {
         }
     }
 }
-#[derive(Debug, Clone)]
-pub struct FbxLoadingError(String);
-
-impl std::error::Error for FbxLoadingError {}
-
-impl std::fmt::Display for FbxLoadingError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<std::io::Error> for FbxLoadingError {
-    fn from(err: std::io::Error) -> Self {
-        Self(err.to_string())
-    }
-}
 
 impl AssetLoader for FbxLoader {
     type Asset = FbxScene;
@@ -121,11 +113,11 @@ impl AssetLoader for FbxLoader {
                     Ok(scene) => Ok(scene),
                     Err(err) => {
                         error!("{err:?}");
-                        Err(FbxLoadingError(err.to_string()))
+                        Err(FbxLoadingError::Other(err.to_string()))
                     }
                 }
             } else {
-                Err(FbxLoadingError("Unsupported FBX version".to_string()))
+                Err(FbxLoadingError::IncorrectFileVersion)
             }
         })
     }
@@ -509,7 +501,6 @@ impl<'b, 'w> Loader<'b, 'w> {
         };
         let is_srgb = false; // TODO
         let image = Image::from_buffer(
-            //"Texture".to_string(),
             image.as_slice(),
             ImageType::Extension(&file_ext),
             self.suported_compressed_formats,

@@ -8,6 +8,7 @@ pub(crate) mod fbx_transform;
 pub(crate) mod loader;
 pub mod material_loader;
 pub(crate) mod utils;
+pub(crate) mod error;
 
 use material_loader::MaterialLoader;
 
