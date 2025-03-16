@@ -95,7 +95,7 @@ impl AssetLoader for FbxLoader {
     fn load(
         &self,
         reader: &mut dyn Reader,
-        settings: &Self::Settings,
+        _settings: &Self::Settings,
         load_context: &mut LoadContext,
     ) -> impl ConditionalSendFuture<Output = Result<Self::Asset, Self::Error>> {
         Box::pin(async move {
@@ -106,8 +106,7 @@ impl AssetLoader for FbxLoader {
             let maybe_doc =
                 AnyDocument::from_seekable_reader(reader).expect("Failed to load document");
             if let AnyDocument::V7400(_ver, doc) = maybe_doc {
-                let path = load_context.path().to_owned();
-                let mut loader =
+                let loader =
                     Loader::new(self.supported, self.material_loaders.clone(), load_context);
                 match loader.load(*doc).await {
                     Ok(scene) => Ok(scene),
@@ -415,7 +414,7 @@ impl<'b, 'w> Loader<'b, 'w> {
 
                 let handle = self
                     .load_context
-                    .add_labeled_asset(label.to_string(), (material_mesh));
+                    .add_labeled_asset(label.to_string(), material_mesh);
                 self.scene.bevy_meshes.insert(handle.clone(), label);
                 handle
             })
@@ -621,11 +620,11 @@ impl<'b, 'w> Loader<'b, 'w> {
         let image: Result<Image, anyhow::Error> = self.load_video_clip(video_clip_obj).await;
         let mut image = image.context("Failed to load texture image")?;
 
-        /*image.sampler_descriptor = ImageSampler::Descriptor(ImageSamplerDescriptor {
-            address_mode_u,
-            address_mode_v,
+        image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+            address_mode_u: address_mode_u.into(),
+            address_mode_v: address_mode_v.into(),
             ..Default::default()
-        });*/
+        });
         Ok(image)
     }
 

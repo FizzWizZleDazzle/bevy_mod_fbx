@@ -123,8 +123,8 @@ impl FbxNodeTransformInfo {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub(crate) struct LocalScale(Scale);
+//#[derive(Copy, Clone, Debug)]
+//pub(crate) struct LocalScale(Scale);
 
 // This is similar to mat.to_scale_rotation_translation()
 // but takes into account shear operations (meaning: rotation followed by non-uniform scale)
