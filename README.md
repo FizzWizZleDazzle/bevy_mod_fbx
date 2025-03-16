@@ -69,11 +69,13 @@ cargu run --example <example_name> --release --features bevy/dynamic
 
 ### Version matrix
 
-| bevy | bevy_mod_fbx |
-|------|--------------|
-| 0.10 | 0.4          |
-| 0.9  | 0.3          |
-| 0.8  | 0.1.0-dev    |
+| bevy        | bevy_mod_fbx |
+|-------------|--------------|
+| 0.15        | 0.5          |
+| 0.11 - 0.14 | :x:          |
+| 0.10        | 0.4          |
+| 0.9         | 0.3          |
+| 0.8         | 0.1.0-dev    |
 
 ## Contributing
 
